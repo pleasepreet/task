@@ -74,7 +74,7 @@ Implements a POST endpoint:
   "task_type": "call",
   "due_at": "2025-01-01T12:00:00Z"
 }
- \`\`\`
+ ```
 
 
 Logic:
