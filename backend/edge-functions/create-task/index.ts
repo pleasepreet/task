@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Service role client (bypasses RLS — required for backend inserts)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 type CreateTaskPayload = {
@@ -26,11 +27,10 @@ serve(async (req: Request) => {
     const { application_id, task_type, due_at } = body;
 
     // -------------------------
-    // INPUT VALIDATION
-    --------------------------
-
+    // VALIDATION
+    // -------------------------
     if (!application_id || !task_type || !due_at) {
-      return json({ error: "Missing required fields." }, 400);
+      return json({ error: "Missing fields" }, 400);
     }
 
     if (!VALID_TYPES.includes(task_type)) {
@@ -42,18 +42,16 @@ serve(async (req: Request) => {
 
     const dueDate = new Date(due_at);
     if (isNaN(dueDate.getTime())) {
-      return json({ error: "Invalid due_at datetime format." }, 400);
+      return json({ error: "Invalid due_at format" }, 400);
     }
 
-    const now = new Date();
-    if (dueDate <= now) {
-      return json({ error: "due_at must be in the future." }, 400);
+    if (dueDate <= new Date()) {
+      return json({ error: "due_at must be in the future" }, 400);
     }
 
     // -------------------------
-    // INSERT INTO TASKS TABLE
-    --------------------------
-
+    // INSERT TASK
+    // -------------------------
     const { data, error } = await supabase
       .from("tasks")
       .insert({
@@ -61,31 +59,32 @@ serve(async (req: Request) => {
         type: task_type,
         due_at,
         status: "open",
-        tenant_id: "SYSTEM", // or derive from application if needed
+        tenant_id: "auto", // Replace if your schema uses tenant logic
       })
       .select("id")
       .single();
 
     if (error) {
-      console.error("DB Insert Error:", error);
-      return json({ error: "Failed to create task." }, 500);
+      console.error("Insert error:", error);
+      return json({ error: "Failed to create task" }, 500);
     }
 
     // -------------------------
-    // EMIT REALTIME EVENT
-    -------------------------
-
+    // SEND REALTIME EVENT
+    // -------------------------
     await supabase.functions.invoke("broadcast", {
       body: {
         event: "task.created",
-        payload: { task_id: data.id, application_id },
+        payload: {
+          task_id: data.id,
+          application_id,
+        },
       },
     });
 
     // -------------------------
     // SUCCESS RESPONSE
-    -------------------------
-
+    // -------------------------
     return json(
       {
         success: true,
@@ -106,4 +105,3 @@ function json(data: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
-
